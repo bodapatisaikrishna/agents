@@ -93,7 +93,11 @@ export type MCPClientConnectionResult = {
 /** Result of discovering server capabilities. */
 export type MCPDiscoveryResult =
   | { success: true }
-  | { success: false; reason: "error" | "stale-session"; error: string };
+  | {
+      success: false;
+      reason: "error" | "stale-session" | "timeout";
+      error: string;
+    };
 
 /**
  * Handler for server-initiated `elicitation/create` requests.
@@ -628,9 +632,25 @@ export class MCPClientConnection {
         this._probingCapabilities &&
         e instanceof SdkHttpError &&
         e.status === 404;
+      const timedOut =
+        !staleSession &&
+        e instanceof Error &&
+        e.message.startsWith("Discovery timed out");
+
+      if (timedOut) {
+        this._onObservabilityEvent.fire({
+          type: "mcp:client:discover",
+          payload: {
+            url: this.url.toString(),
+            error
+          },
+          timestamp: Date.now()
+        });
+      }
+
       return {
         success: false,
-        reason: staleSession ? "stale-session" : "error",
+        reason: staleSession ? "stale-session" : timedOut ? "timeout" : "error",
         error
       };
     } finally {

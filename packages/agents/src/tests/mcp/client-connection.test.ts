@@ -792,6 +792,44 @@ describe("MCP Client Connection Integration", () => {
       // Connection should return to connected state (not failed) so user can retry
       expect(connection.connectionState).toBe("connected");
     });
+
+    it("should return reason: timeout and emit observability event when discovery times out", async () => {
+      const connection = new MCPClientConnection(
+        new URL(serverUrl),
+        { name: "test-client", version: "1.0.0" },
+        {
+          transport: { type: "streamable-http" },
+          client: {}
+        }
+      );
+      connection.connectionState = "connected";
+
+      const events: MCPObservabilityEvent[] = [];
+      connection.onObservabilityEvent((event) => {
+        events.push(event);
+      });
+
+      // Simulate discovery hanging indefinitely
+      connection.discoverAndRegister = vi.fn().mockImplementation(
+        () => new Promise(() => {})
+      );
+
+      const result = await connection.discover({ timeoutMs: 50 });
+
+      expect(result).toMatchObject({
+        success: false,
+        reason: "timeout",
+        error: expect.stringContaining("Discovery timed out after 50ms")
+      });
+      expect(connection.connectionState).toBe("connected");
+
+      const timeoutEvents = events.filter(
+        (e) =>
+          e.type === "mcp:client:discover" &&
+          e.payload.error?.includes("Discovery timed out")
+      );
+      expect(timeoutEvents).toHaveLength(1);
+    });
   });
 
   describe("OAuth Authentication Flow", () => {

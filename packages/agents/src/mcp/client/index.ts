@@ -325,6 +325,7 @@ export type MCPDiscoverResult = {
   success: boolean;
   state: MCPConnectionState;
   error?: string;
+  reason?: "error" | "stale-session" | "timeout";
 };
 
 export type MCPClientOAuthCallbackConfig = {
@@ -1187,7 +1188,14 @@ export class MCPClientManager extends LifecycleCapability {
     if (connectResult?.state === MCPConnectionState.CONNECTED) {
       const discoverResult = await this.discoverIfConnected(serverId);
       if (discoverResult && !discoverResult.success) {
-        console.error(`Error discovering ${serverId}:`, discoverResult.error);
+        if (discoverResult.reason === "timeout") {
+          console.warn(
+            `Discovery timed out for ${serverId}:`,
+            discoverResult.error
+          );
+        } else {
+          console.error(`Error discovering ${serverId}:`, discoverResult.error);
+        }
       }
     }
   }
@@ -1850,7 +1858,12 @@ export class MCPClientManager extends LifecycleCapability {
   ): MCPDiscoverResult {
     return result.success
       ? { success: true, state: conn.connectionState }
-      : { success: false, error: result.error, state: conn.connectionState };
+      : {
+          success: false,
+          error: result.error,
+          reason: result.reason,
+          state: conn.connectionState
+        };
   }
 
   private async _recoverStaleSession(

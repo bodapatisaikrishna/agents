@@ -4853,6 +4853,7 @@ describe("MCPClientManager OAuth Integration", () => {
         expect(result).toEqual({
           success: false,
           state: "connected",
+          reason: "error",
           error: "Discovery failed"
         });
 
@@ -5735,6 +5736,100 @@ describe("MCPClientManager OAuth Integration", () => {
         expect(manager.mcpConnections[serverId].connectionState).toBe(
           "authenticating"
         );
+      })
+    );
+
+    it(
+      "should log discovery timeout at warn rather than error when restoring connections",
+      managerTest(async ({ manager, saveServer }) => {
+        const serverId = "timeout-server";
+        saveServer({
+          id: serverId,
+          name: "Timeout Server",
+          server_url: "http://timeout.example.com",
+          callback_url: "http://localhost:3000/callback",
+          client_id: null,
+          auth_url: null,
+          server_options: null
+        });
+
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+        try {
+          vi.spyOn(manager, "connectToServer").mockResolvedValue({
+            id: serverId,
+            state: "connected"
+          });
+          vi.spyOn(manager, "discoverIfConnected").mockResolvedValue({
+            success: false,
+            reason: "timeout",
+            error: "Discovery timed out after 15000ms",
+            state: "connected"
+          });
+
+          await manager.restoreConnectionsFromStorage("test-agent");
+          await manager.waitForConnections({ timeout: 5000 });
+
+          expect(warnSpy).toHaveBeenCalledWith(
+            `Discovery timed out for ${serverId}:`,
+            "Discovery timed out after 15000ms"
+          );
+          expect(errorSpy).not.toHaveBeenCalledWith(
+            `Error discovering ${serverId}:`,
+            expect.anything()
+          );
+        } finally {
+          warnSpy.mockRestore();
+          errorSpy.mockRestore();
+        }
+      })
+    );
+
+    it(
+      "should log non-timeout discovery failure at error when restoring connections",
+      managerTest(async ({ manager, saveServer }) => {
+        const serverId = "fail-server";
+        saveServer({
+          id: serverId,
+          name: "Fail Server",
+          server_url: "http://fail.example.com",
+          callback_url: "http://localhost:3000/callback",
+          client_id: null,
+          auth_url: null,
+          server_options: null
+        });
+
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+        try {
+          vi.spyOn(manager, "connectToServer").mockResolvedValue({
+            id: serverId,
+            state: "connected"
+          });
+          vi.spyOn(manager, "discoverIfConnected").mockResolvedValue({
+            success: false,
+            reason: "error",
+            error: "Connection refused",
+            state: "connected"
+          });
+
+          await manager.restoreConnectionsFromStorage("test-agent");
+          await manager.waitForConnections({ timeout: 5000 });
+
+          expect(errorSpy).toHaveBeenCalledWith(
+            `Error discovering ${serverId}:`,
+            "Connection refused"
+          );
+          expect(warnSpy).not.toHaveBeenCalledWith(
+            `Discovery timed out for ${serverId}:`,
+            expect.anything()
+          );
+        } finally {
+          warnSpy.mockRestore();
+          errorSpy.mockRestore();
+        }
       })
     );
   });
